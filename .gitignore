@@ -1,0 +1,8 @@
+.venv
+figure
+data
+logs
+__pycache__
+EDA
+dataset/processed_graph.pkl
+*.pkl
