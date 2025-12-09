@@ -2,21 +2,38 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import pickle
-from GCN import GCN
 from torch_geometric.data import Data
+import numpy as np
+import matplotlib.pyplot as plt
+from GCN import GCN
+import random
+
+def set_seed(seed: int = 42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+
+    # Make cuDNN deterministic
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+    print(f"Seed set to: {seed}")
 
 # ---------------------------------------------------------
 # Load graph
 # ---------------------------------------------------------
 def load_graph(path):
-    with open(path, 'rb') as f:
+    with open(path, "rb") as f:
         return pickle.load(f)
 
 # ---------------------------------------------------------
 # Train GCN
 # ---------------------------------------------------------
-
-def train_model(graph_path, epochs=500, lr=0.0097, hidden_channels=64, num_layers=2, dropout=0.324, patience=50):
+def train_model(graph_path, epochs, lr, hidden_channels, num_layers, dropout):
+    print("Setting seed...")
+    set_seed(42)
+    
     print("Loading graph...")
     obj = load_graph(graph_path)
     data: Data = obj['data']
@@ -30,13 +47,20 @@ def train_model(graph_path, epochs=500, lr=0.0097, hidden_channels=64, num_layer
         num_layers=num_layers,
         dropout=dropout
     ).to(device)
+    #Nailepsza opcja dla CGN narazie 
+    optimizer = optim.RAdam(model.parameters(), lr=lr, weight_decay=1e-4)
+    
+    # from torch.optim import AdamW
+    # optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+    # optimizer = optim.RAdam(model.parameters(), lr=lr, weight_decay=1e-4)
 
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-    criterion = nn.MSELoss()
+    criterion = torch.nn.SmoothL1Loss()
 
     best_val_loss = float('inf')
     best_state = None
     epochs_no_improve = 0
+
+    grad_norms = []
 
     print("Start training...")
     for epoch in range(1, epochs + 1):
@@ -46,9 +70,23 @@ def train_model(graph_path, epochs=500, lr=0.0097, hidden_channels=64, num_layer
         out = model(data.x, data.edge_index)
         train_loss = criterion(out[data.train_mask], data.y[data.train_mask])
         train_loss.backward()
+
+        # Gradient clipping
+        #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5)
+
+        # Track gradient norm
+        total_norm = 0.0
+        for p in model.parameters():
+            if p.grad is not None:
+                param_norm = p.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+        grad_norms.append(total_norm ** 0.5)
+
         optimizer.step()
 
+        # ---------------------------------------------------------
         # Validation
+        # ---------------------------------------------------------
         model.eval()
         with torch.no_grad():
             val_loss = criterion(out[data.val_mask], data.y[data.val_mask])
@@ -63,20 +101,42 @@ def train_model(graph_path, epochs=500, lr=0.0097, hidden_channels=64, num_layer
         else:
             epochs_no_improve += 1
 
-        print(f"Epoch {epoch:03d} | Train Loss: {train_loss.item():.4f} | "
-              f"Val Loss: {val_loss.item():.4f} | RMSE_log: {rmse_log:.4f} | MAE_log: {mae_log:.4f}")
+        if epoch == 1 or epoch % 10 == 0:
+            print(
+                f"Epoch {epoch:03d} | Train Loss: {train_loss.item():.4f} | "
+                f"Val Loss: {val_loss.item():.4f} | RMSE_log: {rmse_log:.4f} | MAE_log: {mae_log:.4f}"
+            )
 
-        if epochs_no_improve >= 1000:
-            print(f"Early stopping triggered.")
+        if epochs_no_improve >= 50:
+            print("Early stopping triggered.")
             break
 
+    # Save the best model
     if best_state:
-        torch.save(best_state, 'models/GCN/gcn_best_model.pt')
-        print("Best model saved to gcn_best_model.pt")
+        print("Best valid loss: ", best_val_loss)
+        torch.save(best_state, 'models\GCN\GCN_best_model.pt')
+        print("Best model saved to GCN_best_model.pt")
+
+    return grad_norms
+
 
 # ---------------------------------------------------------
-# Run
+# RUN
 # ---------------------------------------------------------
-# (64, 2, 0.324, 0.0097)
 if __name__ == '__main__':
-    train_model('dataset\processed_graph.pkl', epochs=500, lr=0.0097, hidden_channels=64, num_layers=3, dropout=0.324, patience=20)
+    grad_norms = train_model(
+        '/content/processed_graph.pkl',
+        epochs=2000,
+        lr=0.02,
+        hidden_channels=64,
+        num_layers=4,
+        dropout=0.0
+    )
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(grad_norms)
+    plt.xlabel("Epoka")
+    plt.ylabel("Norma gradientu")
+    plt.title("Zmiana normy gradientu podczas treningu")
+    plt.grid(True)
+    plt.show()

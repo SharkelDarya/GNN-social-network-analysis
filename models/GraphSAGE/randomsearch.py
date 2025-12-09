@@ -52,7 +52,6 @@ def train_one_config(data, hidden, layers, dropout, lr, epochs=50, patience=20, 
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                best_state = model.state_dict()
                 epochs_no_improve = 0
             else:
                 epochs_no_improve += 1
@@ -60,7 +59,7 @@ def train_one_config(data, hidden, layers, dropout, lr, epochs=50, patience=20, 
             if epochs_no_improve >= patience:
                 break
 
-        return best_val_loss, best_state
+        return best_val_loss
 
     except RuntimeError as e:
         if 'out of memory' in str(e):
@@ -80,14 +79,12 @@ def random_search(graph_path, n_iter=20):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Device: {device}")
 
-    # Гиперпараметры
     hidden_options = [32, 64, 128]
     layer_options = [2, 3, 4]
     dropout_options = [0.0, 0.2, 0.5]
     lr_options = [0.001, 0.003, 0.005, 0.01]
 
     best_overall_loss = float('inf')
-    best_overall_state = None
     best_config = None
 
     for i in range(1, n_iter + 1):
@@ -99,13 +96,12 @@ def random_search(graph_path, n_iter=20):
         print(f"Iteration {i}/{n_iter} | Config: hidden={hidden}, layers={layers}, "
               f"dropout={dropout}, lr={lr}")
 
-        val_loss, state = train_one_config(
+        val_loss = train_one_config(
             data, hidden, layers, dropout, lr, epochs=50, patience=10, device=device
         )
 
         if val_loss is not None and val_loss < best_overall_loss:
             best_overall_loss = val_loss
-            best_overall_state = state
             best_config = (hidden, layers, dropout, lr)
             print(f"New best config: {best_config} | Val Loss: {best_overall_loss:.4f}")
 

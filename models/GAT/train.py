@@ -2,26 +2,42 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import pickle
-from GAT import GAT
 from torch_geometric.data import Data
+import numpy as np
+import matplotlib.pyplot as plt
+from GAT import GAT
+import random
+
+def set_seed(seed: int = 42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+    print(f"Seed set to: {seed}")
 
 # ---------------------------------------------------------
 # Load graph
 # ---------------------------------------------------------
 def load_graph(path):
-    with open(path, 'rb') as f:
+    with open(path, "rb") as f:
         return pickle.load(f)
 
 # ---------------------------------------------------------
-# Train GAT
+# Train GCN
 # ---------------------------------------------------------
-
-def train_model(graph_path, epochs=500, lr=0.0097, hidden_channels=64, heads=2, num_layers=2, dropout=0.324, patience=50):
+def train_model(graph_path, epochs, lr, hidden_channels, num_layers, dropout):
+    print("Setting seed...")
+    set_seed(42)
+    
     print("Loading graph...")
     obj = load_graph(graph_path)
     data: Data = obj['data']
 
-    device = torch.device('cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     data = data.to(device)
 
     model = GAT(
@@ -29,15 +45,23 @@ def train_model(graph_path, epochs=500, lr=0.0097, hidden_channels=64, heads=2, 
         hidden_channels=hidden_channels,
         num_layers=num_layers,
         dropout=dropout,
-        heads=heads
+        heads=1
     ).to(device)
 
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-    criterion = nn.MSELoss()
+    #Nailepsza opcja dla CGN narazie 
+    optimizer = optim.RAdam(model.parameters(), lr=lr, weight_decay=1e-4)
+    
+    # from torch.optim import AdamW
+    # optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+    # optimizer = optim.RAdam(model.parameters(), lr=lr, weight_decay=1e-4)
+
+    criterion = torch.nn.SmoothL1Loss()
 
     best_val_loss = float('inf')
     best_state = None
     epochs_no_improve = 0
+
+    grad_norms = []
 
     print("Start training...")
     for epoch in range(1, epochs + 1):
@@ -47,9 +71,23 @@ def train_model(graph_path, epochs=500, lr=0.0097, hidden_channels=64, heads=2, 
         out = model(data.x, data.edge_index)
         train_loss = criterion(out[data.train_mask], data.y[data.train_mask])
         train_loss.backward()
+
+        # Gradient clipping [nic nie dalo]
+        #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5)
+
+        # Track gradient norm
+        total_norm = 0.0
+        for p in model.parameters():
+            if p.grad is not None:
+                param_norm = p.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+        grad_norms.append(total_norm ** 0.5)
+
         optimizer.step()
 
+        # ---------------------------------------------------------
         # Validation
+        # ---------------------------------------------------------
         model.eval()
         with torch.no_grad():
             val_loss = criterion(out[data.val_mask], data.y[data.val_mask])
@@ -64,21 +102,42 @@ def train_model(graph_path, epochs=500, lr=0.0097, hidden_channels=64, heads=2, 
         else:
             epochs_no_improve += 1
 
-        print(f"Epoch {epoch:03d} | Train Loss: {train_loss.item():.4f} | "
-              f"Val Loss: {val_loss.item():.4f} | RMSE_log: {rmse_log:.4f} | MAE_log: {mae_log:.4f}")
+        if epoch == 1 or epoch % 10 == 0:
+            print(
+                f"Epoch {epoch:03d} | Train Loss: {train_loss.item():.4f} | "
+                f"Val Loss: {val_loss.item():.4f} | RMSE_log: {rmse_log:.4f} | MAE_log: {mae_log:.4f}"
+            )
 
-        if epochs_no_improve >= 1000:
-            print(f"Early stopping triggered.")
+        if epochs_no_improve >= 50:
+            print("Early stopping triggered.")
             break
 
+    # Save the best model
     if best_state:
-        torch.save(best_state, 'models/GAT/gat_best_model.pt')
-        print("Best model saved to gat_best_model.pt")
+        print("Best valid loss: ", best_val_loss)
+        torch.save(best_state, 'models\GCN\GCN_best_model.pt')
+        print("Best model saved to GCN_best_model.pt")
+
+    return grad_norms
+
 
 # ---------------------------------------------------------
-# Run
+# RUN
 # ---------------------------------------------------------
-# Best config: (32, 2, 0.2, 0.01, 1) | Val Loss: 4.8741
-# Best config: (32, 3, 0.0, 0.005, 1) | Val Loss: 4.2045
 if __name__ == '__main__':
-    train_model('dataset\processed_graph.pkl', epochs=500, lr=0.005, hidden_channels=32, heads=1, num_layers=2, dropout=0.0, patience=20)
+    grad_norms = train_model(
+        '/content/processed_graph.pkl',
+        epochs=2000,
+        lr=0.02,
+        hidden_channels=64,
+        num_layers=4,
+        dropout=0.0
+    )
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(grad_norms)
+    plt.xlabel("Epoka")
+    plt.ylabel("Norma gradientu")
+    plt.title("Zmiana normy gradientu podczas treningu")
+    plt.grid(True)
+    plt.show()
