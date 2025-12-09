@@ -30,9 +30,9 @@ Technologies: **Python 3, Pandas, NetworkX, Matplotlib, PyVis, PyTorch, PyTorch 
 
 3. GNN Model Implementation
 
-- [ ] GCN (Graph Convolutional Network)
-- [ ] GraphSAGE
-- [ ] GAT (Graph Attention Network)
+- [x] GCN (Graph Convolutional Network)
+- [x] GraphSAGE
+- [x] GAT (Graph Attention Network)
 
   \
 
@@ -47,7 +47,7 @@ Technologies: **Python 3, Pandas, NetworkX, Matplotlib, PyVis, PyTorch, PyTorch 
 
 A social network of **Twitch users**, collected from the public API in **Spring 2018**. \n Nodes represent Twitch users, and edges represent**mutual follower relationships**. \n The graph forms a single strongly connected component and contains**no missing attributes**.
 
-**Source (citation):** \n B. Rozemberczki and R. Sarkar.*Twitch Gamers: a Dataset for Evaluating Proximity Preserving and Structural Role-based Node Embeddings.*2021. \n arXiv:2101.03091
+**Source (citation):** \n B. Rozemberczki and R. Sarkar.\*Twitch Gamers: a Dataset for Evaluating Proximity Preserving and Structural Role-based Node Embeddings.\*2021. \n arXiv:2101.03091
 
 ```javascript
 @misc{rozemberczki2021twitch,
